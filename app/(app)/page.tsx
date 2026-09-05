@@ -1,6 +1,5 @@
 import Image from "next/image"
 import { auth } from "@clerk/nextjs/server"
-import { OrganizationSwitcher, UserButton } from "@clerk/nextjs"
 import {
   Empty,
   EmptyDescription,
@@ -26,8 +25,6 @@ export default async function Page() {
           own words. If you can describe it, you can play it.
         </EmptyDescription>
       </EmptyHeader>
-      <UserButton />
-      <OrganizationSwitcher />
     </Empty>
   )
 }
