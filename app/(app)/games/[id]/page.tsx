@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server"
+import { ChatThread } from "@/components/chat-thread"
 
 export default async function GamePage({
   params,
@@ -6,11 +7,13 @@ export default async function GamePage({
   params: Promise<{ id: string }>
 }) {
   await auth.protect()
-  const { id } = await params
+  await params
 
   return (
-    <div className="p-6">
-      <p>{id}</p>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-4 md:px-6">
+      <div className="mx-auto w-full max-w-3xl">
+        <ChatThread />
+      </div>
     </div>
   )
 }
