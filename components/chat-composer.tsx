@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useTransition } from "react"
 import { ArrowUp, ChevronDown, GripHorizontal } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -14,7 +15,6 @@ import {
   InputGroupAddon,
   InputGroupTextarea,
 } from "@/components/ui/input-group"
-import { useState, useTransition } from "react"
 import { createGame } from "@/lib/games/actions"
 
 const models = [
@@ -25,40 +25,75 @@ const models = [
   "DeepSeek V3",
 ]
 
-export function ChatComposer() {
+export interface ChatComposerProps {
+  value?: string
+  onChange?: (value: string) => void
+  onSubmit?: (value: string) => void | Promise<void>
+  isPending?: boolean
+  disabled?: boolean
+  placeholder?: string
+  className?: string
+}
+
+export function ChatComposer({
+  value,
+  onChange,
+  onSubmit,
+  isPending: externalIsPending,
+  disabled,
+  placeholder = "Describe the game you want to build...",
+  className,
+}: ChatComposerProps = {}) {
   const [model, setModel] = useState(models[0])
-  const [prompt, setPrompt] = useState("")
-  const [isPending, startTransition] = useTransition()
+  const [internalPrompt, setInternalPrompt] = useState("")
+  const [internalIsPending, startTransition] = useTransition()
+
+  const isControlled = value !== undefined
+  const prompt = isControlled ? value : internalPrompt
+  const isPending = externalIsPending ?? internalIsPending
+
+  const handlePromptChange = (newVal: string) => {
+    if (!isControlled) {
+      setInternalPrompt(newVal)
+    }
+    onChange?.(newVal)
+  }
 
   const handleSubmit = (titleToSubmit?: string) => {
     const title = (titleToSubmit ?? prompt).trim()
-    if (!title || isPending) return
+    if (!title || isPending || disabled) return
 
     startTransition(async () => {
       try {
-        await createGame(title)
-        setPrompt("")
+        if (onSubmit) {
+          await onSubmit(title)
+        } else {
+          await createGame(title)
+        }
+        if (!isControlled) {
+          setInternalPrompt("")
+        }
       } catch (error) {
-        console.error("Failed to create game:", error)
+        console.error("Failed to submit:", error)
       }
     })
   }
 
   return (
-    <InputGroup className="bg-popover">
+    <InputGroup className={`bg-popover ${className ?? ""}`}>
       <InputGroupTextarea
-        placeholder="Describe the game you want to build..."
+        placeholder={placeholder}
         className="field-sizing-content max-h-48 min-h-15"
         rows={1}
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={(e) => handlePromptChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault()
             handleSubmit()
           }
         }}
-        disabled={isPending}
+        disabled={isPending || disabled}
       />
       <InputGroupAddon
         align="block-end"
@@ -92,7 +127,7 @@ export function ChatComposer() {
           className="rounded-full"
           type="button"
           onClick={() => handleSubmit()}
-          disabled={!prompt.trim() || isPending}
+          disabled={!prompt.trim() || isPending || disabled}
         >
           <ArrowUp />
         </Button>
