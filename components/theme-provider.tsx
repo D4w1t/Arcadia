@@ -22,15 +22,20 @@ function ThemeProvider({
 }
 
 function isTypingTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
+  if (!target || !(target instanceof Element)) {
     return false
   }
 
   return (
-    target.isContentEditable ||
     target.tagName === "INPUT" ||
     target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT"
+    target.tagName === "SELECT" ||
+    Boolean((target as HTMLElement).isContentEditable) ||
+    Boolean(
+      target.closest(
+        "input, textarea, select, [contenteditable='true'], [role='textbox']"
+      )
+    )
   )
 }
 
@@ -43,15 +48,15 @@ function ThemeHotkey() {
         return
       }
 
+      if (isTypingTarget(event.target)) {
+        return
+      }
+
       if (event.metaKey || event.ctrlKey || event.altKey) {
         return
       }
 
-      if (event.key.toLowerCase() !== "d") {
-        return
-      }
-
-      if (isTypingTarget(event.target)) {
+      if (!event.key || event.key.toLowerCase() !== "d") {
         return
       }
 
