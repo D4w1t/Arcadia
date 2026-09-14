@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -25,6 +26,11 @@ import type { Game } from "@/lib/db/schema"
 
 export function AppSidebar({ games = [] }: { games?: Game[] }) {
   const pathname = usePathname()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <Sidebar collapsible="icon">
@@ -116,20 +122,28 @@ export function AppSidebar({ games = [] }: { games?: Game[] }) {
           </SidebarMenuItem>
           <SidebarMenuItem className="flex items-center justify-between px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
             <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-              <OrganizationSwitcher
-                appearance={{
-                  elements: {
-                    rootBox: "w-full! max-w-full",
-                    organizationSwitcherTrigger:
-                      "w-full! max-w-full justify-between!",
-                    organizationPreview: "min-w-0",
-                    organizationPreviewTextContainer: "min-w-0",
-                    organizationPreviewMainIdentifier: "truncate",
-                  },
-                }}
-              />
+              {mounted ? (
+                <OrganizationSwitcher
+                  appearance={{
+                    elements: {
+                      rootBox: "w-full! max-w-full",
+                      organizationSwitcherTrigger:
+                        "w-full! max-w-full justify-between!",
+                      organizationPreview: "min-w-0",
+                      organizationPreviewTextContainer: "min-w-0",
+                      organizationPreviewMainIdentifier: "truncate",
+                    },
+                  }}
+                />
+              ) : (
+                <div className="h-8 w-full animate-pulse rounded-md bg-sidebar-accent/50" />
+              )}
             </div>
-            <UserButton />
+            {mounted ? (
+              <UserButton />
+            ) : (
+              <div className="size-7 animate-pulse rounded-full bg-sidebar-accent/50" />
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

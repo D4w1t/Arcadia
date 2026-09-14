@@ -14,7 +14,7 @@ export default async function Page() {
   await auth.protect()
 
   return (
-    <Empty className="min-h-svh">
+    <Empty className="h-full min-h-0 overflow-y-auto">
       <EmptyHeader>
         <EmptyMedia>
           <Image src="/logo.svg" alt="Logo" width={48} height={48} />

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { ArrowUp, ChevronDown, GripHorizontal } from "lucide-react"
+import { ArrowUp, ChevronDown, GripHorizontal, Square } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,6 +16,7 @@ import {
   InputGroupTextarea,
 } from "@/components/ui/input-group"
 import { createGame } from "@/lib/games/actions"
+import { cn } from "@/lib/utils"
 
 const models = [
   "Kimi K3",
@@ -29,6 +30,9 @@ export interface ChatComposerProps {
   value?: string
   onChange?: (value: string) => void
   onSubmit?: (value: string) => void | Promise<void>
+  onStop?: () => void | Promise<void>
+  onContinue?: () => void | Promise<void>
+  canContinue?: boolean
   isPending?: boolean
   disabled?: boolean
   placeholder?: string
@@ -39,6 +43,9 @@ export function ChatComposer({
   value,
   onChange,
   onSubmit,
+  onStop,
+  onContinue,
+  canContinue = false,
   isPending: externalIsPending,
   disabled,
   placeholder = "Describe the game you want to build...",
@@ -80,20 +87,40 @@ export function ChatComposer({
   }
 
   return (
-    <InputGroup className={`bg-popover ${className ?? ""}`}>
+    <InputGroup
+      className={cn(
+        "border-border bg-popover shadow-2xl has-disabled:bg-popover has-disabled:opacity-100 dark:bg-popover dark:has-disabled:bg-popover",
+        className
+      )}
+    >
       <InputGroupTextarea
-        placeholder={placeholder}
-        className="field-sizing-content max-h-48 min-h-15"
+        placeholder={
+          canContinue && !prompt.trim()
+            ? "Ask a question or press Enter / ↑ to continue..."
+            : placeholder
+        }
+        className="field-sizing-content max-h-48 min-h-15 disabled:opacity-100"
         rows={1}
         value={prompt}
         onChange={(e) => handlePromptChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault()
-            handleSubmit()
+            if (isPending) {
+              onStop?.()
+            } else if (!prompt.trim() && canContinue) {
+              if (onContinue) {
+                onContinue()
+              } else {
+                handleSubmit("continue")
+              }
+            } else {
+              handleSubmit()
+            }
           }
         }}
-        disabled={isPending || disabled}
+        readOnly={isPending}
+        disabled={disabled}
       />
       <InputGroupAddon
         align="block-end"
@@ -126,10 +153,39 @@ export function ChatComposer({
           size="icon-sm"
           className="rounded-full"
           type="button"
-          onClick={() => handleSubmit()}
-          disabled={!prompt.trim() || isPending || disabled}
+          onClick={() => {
+            if (isPending) {
+              onStop?.()
+            } else if (!prompt.trim() && canContinue) {
+              if (onContinue) {
+                onContinue()
+              } else {
+                handleSubmit("continue")
+              }
+            } else {
+              handleSubmit()
+            }
+          }}
+          disabled={
+            disabled ||
+            (isPending ? !onStop : (!prompt.trim() && !canContinue))
+          }
+          aria-label={
+            isPending
+              ? "Stop generating"
+              : canContinue && !prompt.trim()
+                ? "Continue generating"
+                : "Send message"
+          }
+          title={
+            isPending
+              ? "Stop generating"
+              : canContinue && !prompt.trim()
+                ? "Continue generating"
+                : "Send message"
+          }
         >
-          <ArrowUp />
+          {isPending ? <Square className="size-3 fill-current" /> : <ArrowUp />}
         </Button>
       </InputGroupAddon>
     </InputGroup>

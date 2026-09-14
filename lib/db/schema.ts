@@ -15,6 +15,7 @@ export const games = pgTable(
     orgId: text("org_id").notNull(),
     title: text("title").notNull(),
     messages: jsonb("messages").$type<UIMessage[]>().default([]).notNull(),
+    lastEventId: text("last_event_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

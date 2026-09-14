@@ -10,9 +10,11 @@ export default async function AppLayout({
   const games = await listGames()
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-svh max-h-svh overflow-hidden">
       <AppSidebar games={games} />
-      <SidebarInset>{children}</SidebarInset>
+      <SidebarInset className="h-full min-h-0 overflow-hidden">
+        {children}
+      </SidebarInset>
     </SidebarProvider>
   )
 }
