@@ -4,12 +4,27 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import { useUser } from "@clerk/nextjs"
 import { useChat } from "@ai-sdk/react"
-import { type UIMessage, type UIMessageChunk } from "ai"
+import {
+  type UIMessage,
+  type UIMessageChunk,
+  type ToolUIPart,
+  type DynamicToolUIPart,
+  isToolUIPart,
+  getToolName,
+} from "ai"
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  Loader2Icon,
+  TriangleAlertIcon,
+} from "lucide-react"
 import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react"
 import type { gameChat } from "@/trigger/chat"
 import { getChatSession, mintChatAccessToken, startChatSession } from "@/app/actions/chat"
+import { cn } from "cn"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import {
   Message,
   MessageAvatar,
@@ -92,6 +107,126 @@ function sanitizeUIMessageStream(
   )
 }
 
+type ToolCallState = "active" | "done" | "failed"
+
+function getToolCallState(
+  part: ToolUIPart<any> | DynamicToolUIPart
+): ToolCallState {
+  if (part.state === "output-error" || part.state === "output-denied") {
+    return "failed"
+  }
+  if (part.state === "output-available") {
+    return "done"
+  }
+  return "active"
+}
+
+function ToolCallMarker({
+  part,
+}: {
+  part: ToolUIPart<any> | DynamicToolUIPart
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const state = getToolCallState(part)
+  const toolName = getToolName(part)
+  const input = part.input as Record<string, unknown> | undefined
+  const path =
+    input && typeof input === "object" && "path" in input
+      ? String(input.path)
+      : undefined
+
+  const output = "output" in part ? (part as any).output : undefined
+  const errorText = "errorText" in part ? (part as any).errorText : undefined
+
+  const hasDetails = Boolean(
+    errorText ||
+      (output &&
+        (typeof output === "string" ||
+          (typeof output === "object" && Object.keys(output).length > 0))) ||
+      (input && typeof input === "object" && Object.keys(input).length > 0)
+  )
+
+  return (
+    <div className="w-full max-w-full rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 transition-colors hover:bg-muted/30">
+      <Marker
+        className="cursor-pointer select-none text-xs font-mono"
+        onClick={() => hasDetails && setIsOpen((prev) => !prev)}
+      >
+        <MarkerIcon>
+          {state === "active" && (
+            <Loader2Icon className="size-3.5 animate-spin text-amber-500" />
+          )}
+          {state === "done" && (
+            <CheckIcon className="size-3.5 text-emerald-500" />
+          )}
+          {state === "failed" && (
+            <TriangleAlertIcon className="size-3.5 text-destructive" />
+          )}
+        </MarkerIcon>
+        <MarkerContent className="flex flex-1 items-center justify-between gap-2 overflow-hidden">
+          <div className="flex items-center gap-1.5 truncate">
+            <span className="font-semibold text-foreground">{toolName}</span>
+            {path && (
+              <span className="truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                {path}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              className={cn("text-[11px] capitalize", {
+                "text-amber-500 font-medium": state === "active",
+                "text-emerald-500": state === "done",
+                "text-destructive font-medium": state === "failed",
+              })}
+            >
+              {state}
+            </span>
+            {hasDetails && (
+              <ChevronDownIcon
+                className={cn(
+                  "size-3 text-muted-foreground/70 transition-transform",
+                  isOpen && "rotate-180"
+                )}
+              />
+            )}
+          </div>
+        </MarkerContent>
+      </Marker>
+
+      {isOpen && (
+        <div className="mt-2 space-y-1.5 border-t border-border/40 pt-2 font-mono text-[11px]">
+          {errorText && (
+            <div className="rounded bg-destructive/10 p-2 text-destructive">
+              <span className="font-semibold">Error:</span> {errorText}
+            </div>
+          )}
+          {output && (
+            <div className="max-h-40 overflow-auto rounded bg-background/80 p-2 text-muted-foreground">
+              {typeof output === "object" && "message" in output ? (
+                <div>{String(output.message)}</div>
+              ) : (
+                <pre className="whitespace-pre-wrap">
+                  {typeof output === "string"
+                    ? output
+                    : JSON.stringify(output, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+          {!output && !errorText && input && (
+            <div className="max-h-40 overflow-auto rounded bg-background/80 p-2 text-muted-foreground">
+              <pre className="whitespace-pre-wrap">
+                {JSON.stringify(input, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export interface ChatThreadProps {
   gameId?: string
   initialMessages?: UIMessage[]
@@ -100,6 +235,7 @@ export interface ChatThreadProps {
     publicAccessToken?: string
     lastEventId?: string
   }
+  onTurnFinish?: () => void
 }
 
 export function ChatThread({
@@ -107,6 +243,7 @@ export function ChatThread({
   initialMessages = [],
   initialPrompt,
   initialSession,
+  onTurnFinish,
 }: ChatThreadProps = {}) {
   const { user } = useUser()
   const [input, setInput] = useState("")
@@ -190,7 +327,44 @@ export function ChatThread({
     messages: sanitizedInitialMessages,
     transport,
     resume: sanitizedInitialMessages.length > 0,
+    onFinish: () => {
+      onTurnFinish?.()
+    },
+    onData: (part) => {
+      if (
+        part.type === "data-turn-complete" ||
+        (part as any).type?.includes("turn-complete")
+      ) {
+        onTurnFinish?.()
+      }
+    },
   })
+
+  const prevStatusRef = useRef(status)
+  useEffect(() => {
+    if (
+      (prevStatusRef.current === "streaming" ||
+        prevStatusRef.current === "submitted") &&
+      status === "ready"
+    ) {
+      onTurnFinish?.()
+    }
+    prevStatusRef.current = status
+  }, [status, onTurnFinish])
+
+  useEffect(() => {
+    const hasAssistantResponse = messages.some(
+      (m) =>
+        m.role === "assistant" &&
+        m.parts?.some(
+          (p) =>
+            isToolUIPart(p) || (p.type === "text" && p.text.trim().length > 0)
+        )
+    )
+    if (hasAssistantResponse && status === "ready") {
+      onTurnFinish?.()
+    }
+  }, [messages, status, onTurnFinish])
 
   const isPending = status === "submitted" || status === "streaming"
 
@@ -333,18 +507,80 @@ export function ChatThread({
                         )}
                       </MessageAvatar>
                       <MessageContent>
-                        <Bubble
-                          variant={isUser ? "secondary" : "ghost"}
-                          align={isUser ? "end" : "start"}
-                        >
-                          <BubbleContent className="whitespace-pre-wrap">
-                            {textContent || (
-                              <span className="animate-pulse text-xs text-muted-foreground">
-                                Thinking...
-                              </span>
+                        {isUser ? (
+                          <Bubble variant="secondary" align="end">
+                            <BubbleContent className="whitespace-pre-wrap">
+                              {textContent}
+                            </BubbleContent>
+                          </Bubble>
+                        ) : (
+                          <>
+                            {message.parts && message.parts.length > 0 ? (
+                              <>
+                                {message.parts
+                                  .filter(
+                                    (part) =>
+                                      isToolUIPart(part) ||
+                                      (part.type === "text" &&
+                                        part.text.length > 0)
+                                  )
+                                  .map((part, partIndex) => {
+                                    if (isToolUIPart(part)) {
+                                      return (
+                                        <ToolCallMarker
+                                          key={
+                                            part.toolCallId ||
+                                            `tool-${partIndex}`
+                                          }
+                                          part={part}
+                                        />
+                                      )
+                                    }
+
+                                    if (part.type === "text") {
+                                      return (
+                                        <Bubble
+                                          key={`text-${partIndex}`}
+                                          variant="ghost"
+                                          align="start"
+                                        >
+                                          <BubbleContent className="whitespace-pre-wrap">
+                                            {part.text}
+                                          </BubbleContent>
+                                        </Bubble>
+                                      )
+                                    }
+
+                                    return null
+                                  })}
+
+                                {!message.parts.some(
+                                  (p) =>
+                                    isToolUIPart(p) ||
+                                    (p.type === "text" && p.text.length > 0)
+                                ) && (
+                                  <Bubble variant="ghost" align="start">
+                                    <BubbleContent className="whitespace-pre-wrap">
+                                      <span className="animate-pulse text-xs text-muted-foreground">
+                                        Thinking...
+                                      </span>
+                                    </BubbleContent>
+                                  </Bubble>
+                                )}
+                              </>
+                            ) : (
+                              <Bubble variant="ghost" align="start">
+                                <BubbleContent className="whitespace-pre-wrap">
+                                  {textContent || (
+                                    <span className="animate-pulse text-xs text-muted-foreground">
+                                      Thinking...
+                                    </span>
+                                  )}
+                                </BubbleContent>
+                              </Bubble>
                             )}
-                          </BubbleContent>
-                        </Bubble>
+                          </>
+                        )}
                       </MessageContent>
                     </Message>
                   )
