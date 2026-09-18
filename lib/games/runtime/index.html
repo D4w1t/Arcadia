@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Arcadia 3D Game Engine</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #09090b;
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+      }
+      #overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 24px;
+        z-index: 10;
+      }
+      .brand-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: rgba(24, 24, 27, 0.75);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 9999px;
+        padding: 8px 16px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(245, 158, 11, 0.15);
+      }
+      .brand-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #f59e0b;
+        box-shadow: 0 0 10px #f59e0b;
+        animation: pulseDot 2s infinite ease-in-out;
+      }
+      .brand-text {
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #f8fafc;
+      }
+      .brand-text span {
+        color: #f59e0b;
+      }
+      .sound-btn {
+        pointer-events: auto;
+        background: rgba(24, 24, 27, 0.75);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 50%;
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #f59e0b;
+        cursor: pointer;
+        transition: transform 0.15s, border-color 0.15s;
+      }
+      .sound-btn:hover {
+        transform: scale(1.08);
+        border-color: #f59e0b;
+      }
+      .center-prompt {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .prompt-title {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+      }
+      .prompt-desc {
+        font-size: 14px;
+        color: #a1a1aa;
+        max-width: 380px;
+        line-height: 1.5;
+        background: rgba(9, 9, 11, 0.6);
+        backdrop-filter: blur(8px);
+        padding: 6px 14px;
+        border-radius: 8px;
+      }
+      .stats-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(245, 158, 11, 0.15);
+        border: 1px solid rgba(245, 158, 11, 0.4);
+        color: #fbbf24;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 4px 12px;
+        border-radius: 20px;
+        margin-top: 4px;
+      }
+      @keyframes pulseDot {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.3); opacity: 0.6; }
+      }
+    </style>
+
+    <!-- Import Map for Three.js -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="overlay">
+      <div class="brand-header">
+        <div class="brand-badge">
+          <div class="brand-dot"></div>
+          <div class="brand-text">Arcadia <span>3D Engine</span></div>
+        </div>
+        <button class="sound-btn" id="sound-btn" title="Toggle Sound">
+          🔊
+        </button>
+      </div>
+
+      <div class="center-prompt">
+        <div class="prompt-title">New Game Sandbox</div>
+        <div class="prompt-desc">Click or drag the 3D cube to interact. Type in chat to generate your game!</div>
+        <div class="stats-badge" id="stats-badge">Cube Taps: 0</div>
+      </div>
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import {
+        Engine,
+        Models,
+        Sound,
+        ParticleSystem,
+        Easing
+      } from "./engine/index.js";
+
+      // 1. Initialize Engine
+      const engine = new Engine({
+        background: 0x09090b,
+        fov: 50,
+      });
+      engine.camera.position.set(0, 2.5, 6.5);
+      engine.camera.lookAt(0, 0.5, 0);
+
+      // 2. Initialize Audio & Particles
+      const audio = new Sound();
+      const particles = new ParticleSystem(engine.scene, 250);
+
+      // Sound Toggle Button
+      const soundBtn = document.getElementById("sound-btn");
+      soundBtn.addEventListener("click", () => {
+        const isMuted = audio.toggleMute();
+        soundBtn.textContent = isMuted ? "🔇" : "🔊";
+      });
+
+      // 3. Add Reflective Dark Grid
+      const grid = Models.createGroundGrid({
+        size: 40,
+        divisions: 40,
+        centerLineColor: 0xf59e0b,
+        gridColor: 0x27272a,
+      });
+      engine.add(grid);
+
+      // 4. Create Signature Arcadia Amber Cube
+      const cube = Models.createArcadiaCube({ size: 1.8 });
+      cube.position.set(0, 1.2, 0);
+      engine.add(cube);
+
+      // Add Pedestal under cube
+      const pedestalGeom = new THREE.CylinderGeometry(1.6, 1.8, 0.25, 32);
+      const pedestalMat = new THREE.MeshStandardMaterial({
+        color: 0x18181b,
+        roughness: 0.4,
+        metalness: 0.6,
+      });
+      const pedestal = new THREE.Mesh(pedestalGeom, pedestalMat);
+      pedestal.position.set(0, 0.125, 0);
+      pedestal.receiveShadow = true;
+      pedestal.castShadow = true;
+      engine.add(pedestal);
+
+      // Pedestal glowing ring
+      const ringGeom = new THREE.RingGeometry(1.58, 1.62, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xf59e0b,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeom, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(0, 0.255, 0);
+      engine.add(ring);
+
+      // 5. Interaction (Drag to rotate & Click to bounce/burst)
+      let isDragging = false;
+      let previousMousePosition = { x: 0, y: 0 };
+      let targetRotY = 0;
+      let targetRotX = 0;
+      let tapCount = 0;
+      let bounceScale = 1;
+      let bounceVelocity = 0;
+
+      const statsBadge = document.getElementById("stats-badge");
+
+      window.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        const deltaX = e.clientX - previousMousePosition.x;
+        const deltaY = e.clientY - previousMousePosition.y;
+        targetRotY += deltaX * 0.01;
+        targetRotX += deltaY * 0.01;
+        targetRotX = Math.max(-0.6, Math.min(0.6, targetRotX));
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+
+      // Touch drag
+      window.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      });
+      window.addEventListener("touchmove", (e) => {
+        if (!isDragging || e.touches.length !== 1) return;
+        const deltaX = e.touches[0].clientX - previousMousePosition.x;
+        const deltaY = e.touches[0].clientY - previousMousePosition.y;
+        targetRotY += deltaX * 0.01;
+        targetRotX += deltaY * 0.01;
+        targetRotX = Math.max(-0.6, Math.min(0.6, targetRotX));
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      });
+      window.addEventListener("touchend", () => {
+        isDragging = false;
+      });
+
+      // Click / Tap detection on Cube
+      window.addEventListener("click", (e) => {
+        // Don't trigger if clicked on UI buttons
+        if (e.target.closest("#sound-btn")) return;
+
+        const hits = engine.raycastFromPointer(e, [cube]);
+        if (hits.length > 0) {
+          tapCount++;
+          statsBadge.textContent = `Cube Taps: ${tapCount}`;
+
+          // Audio chime
+          audio.coin();
+
+          // Particle sparkle burst
+          particles.burst(
+            hits[0].point.x,
+            hits[0].point.y,
+            hits[0].point.z,
+            30,
+            0xf59e0b
+          );
+
+          // Elastic bounce impulse
+          bounceVelocity = 0.4;
+        }
+      });
+
+      // 6. Game Loop
+      engine.start((dt, time) => {
+        // Smooth rotation
+        if (!isDragging) {
+          targetRotY += 0.8 * dt;
+          targetRotX = Math.sin(time * 0.8) * 0.15;
+        }
+        cube.rotation.y = THREE.MathUtils.lerp(cube.rotation.y, targetRotY, 0.1);
+        cube.rotation.x = THREE.MathUtils.lerp(cube.rotation.x, targetRotX, 0.1);
+
+        // Floating hover
+        cube.position.y = 1.2 + Math.sin(time * 2) * 0.12;
+
+        // Bounce spring dynamics
+        if (bounceVelocity !== 0 || bounceScale !== 1) {
+          bounceVelocity += (1 - bounceScale) * 35 * dt;
+          bounceVelocity *= 0.85; // damping
+          bounceScale += bounceVelocity;
+          cube.scale.set(bounceScale, 2 - bounceScale, bounceScale);
+        }
+
+        // Ambient floating golden dust particles
+        if (Math.random() < 0.25) {
+          particles.burst(
+            (Math.random() - 0.5) * 4,
+            0.2 + Math.random() * 2,
+            (Math.random() - 0.5) * 4,
+            1,
+            0xfbbf24
+          );
+        }
+
+        particles.update(dt);
+      });
+    </script>
+  </body>
+</html>

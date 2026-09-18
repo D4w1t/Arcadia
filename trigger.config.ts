@@ -1,4 +1,5 @@
 import { defineConfig } from "@trigger.dev/sdk";
+import { additionalFiles } from "@trigger.dev/build/extensions/core";
 
 export default defineConfig({
   project: "proj_dgnwavezvaixpjgixulq",
@@ -19,4 +20,12 @@ export default defineConfig({
     },
   },
   dirs: ["trigger"],
+  build: {
+    extensions: [
+      additionalFiles({
+        files: ["lib/games/runtime/**"],
+      }),
+    ],
+  },
 });
+

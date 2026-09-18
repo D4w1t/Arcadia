@@ -1,8 +1,104 @@
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import type { Sandbox } from "@daytona/sdk"
 import { eq } from "drizzle-orm"
 import { daytona } from "@/lib/daytona/client"
 import { db } from "@/lib/db"
 import { games } from "@/lib/db/schema"
+
+function getRuntimeDir(): string {
+  const cwdCandidate = path.join(process.cwd(), "lib", "games", "runtime")
+  if (fs.existsSync(cwdCandidate)) {
+    return cwdCandidate
+  }
+  try {
+    const currentDir =
+      typeof __dirname !== "undefined"
+        ? __dirname
+        : path.dirname(fileURLToPath(import.meta.url))
+    const relCandidate = path.resolve(currentDir, "../games/runtime")
+    if (fs.existsSync(relCandidate)) {
+      return relCandidate
+    }
+  } catch {}
+  return cwdCandidate
+}
+
+interface RuntimeEntries {
+  dirs: string[]
+  files: string[]
+}
+
+async function collectRuntimeEntries(
+  dir: string,
+  baseDir: string = dir
+): Promise<RuntimeEntries> {
+  const result: RuntimeEntries = { dirs: [], files: [] }
+  if (!fs.existsSync(dir)) return result
+
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name)
+    const relPath = path.relative(baseDir, fullPath).replace(/\\/g, "/")
+    if (entry.isDirectory()) {
+      result.dirs.push(relPath)
+      const nested = await collectRuntimeEntries(fullPath, baseDir)
+      result.dirs.push(...nested.dirs)
+      result.files.push(...nested.files)
+    } else if (entry.isFile()) {
+      result.files.push(relPath)
+    }
+  }
+
+  return result
+}
+
+/**
+ * Seeds all files, folders, and subfolders from lib/games/runtime to /home/daytona/game
+ * in the Daytona sandbox.
+ */
+export async function seedSandboxFromRuntime(sandbox: Sandbox): Promise<void> {
+  await sandbox.fs.createFolder("/home/daytona/game", "755").catch(() => {})
+
+  const runtimeDir = getRuntimeDir()
+  const { dirs, files } = await collectRuntimeEntries(runtimeDir)
+
+  // Sort directories to ensure parents are created before child subfolders
+  dirs.sort((a, b) => a.split("/").length - b.split("/").length)
+
+  for (const relDir of dirs) {
+    const remoteFolder = path.posix.join("/home/daytona/game", relDir)
+    await sandbox.fs.createFolder(remoteFolder, "755").catch(() => {})
+  }
+
+  if (files.length > 0) {
+    const fileUploads = await Promise.all(
+      files.map(async (relFile) => {
+        const fullLocalPath = path.join(runtimeDir, relFile)
+        const content = await fs.promises.readFile(fullLocalPath)
+        return {
+          source: content,
+          destination: path.posix.join("/home/daytona/game", relFile),
+        }
+      })
+    )
+
+    try {
+      await sandbox.fs.uploadFiles(fileUploads)
+    } catch {
+      for (const item of fileUploads) {
+        await sandbox.fs.uploadFile(item.source, item.destination)
+      }
+    }
+  } else {
+    // Fallback if runtime folder is empty
+    await sandbox.fs.uploadFile(
+      Buffer.from("New game"),
+      "/home/daytona/game/index.html"
+    )
+  }
+}
 
 /**
  * Retrieves a guaranteed Daytona sandbox instance for a game.
@@ -33,8 +129,8 @@ export async function getGameSandbox(
 }
 
 /**
- * Creates a Daytona sandbox for a game, seeds /home/daytona/game/index.html
- * with "New game", and stores the sandboxId on the game record in the database.
+ * Creates a Daytona sandbox for a game, seeds /home/daytona/game with files from
+ * lib/games/runtime, and stores the sandboxId on the game record in the database.
  * Returns { sandbox } format.
  */
 export async function createGameSandbox(
@@ -60,11 +156,7 @@ export async function createGameSandbox(
 
   const sandbox = await daytona.create()
 
-  await sandbox.fs.createFolder("/home/daytona/game", "755").catch(() => {})
-  await sandbox.fs.uploadFile(
-    Buffer.from("New game"),
-    "/home/daytona/game/index.html"
-  )
+  await seedSandboxFromRuntime(sandbox)
 
   await db
     .update(games)
